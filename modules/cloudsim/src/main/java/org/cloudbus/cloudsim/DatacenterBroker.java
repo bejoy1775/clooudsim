@@ -8,11 +8,7 @@
 
 package org.cloudbus.cloudsim;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 import org.cloudbus.cloudsim.core.CloudSim;
 import org.cloudbus.cloudsim.core.CloudSimTags;
@@ -145,6 +141,208 @@ public class DatacenterBroker extends SimEntity {
 	public void bindCloudletToVm(int cloudletId, int vmId) {
 		CloudletList.getById(getCloudletList(), cloudletId).setVmId(vmId);
 	}
+
+	////////////////////////////////////////////////////////////////////////////////////
+	/**
+	 * Extended function for allocating cloudlets to vms in order.
+	 */
+	public void bindCloudletsToVmsSimple(){
+		int cloudletNum=cloudletList.size();
+		int vmNum=vmList.size();
+		int idx=0;
+		for(int i=0;i<cloudletNum;i++){
+			cloudletList.get(i).setVmId(vmList.get(idx).getId());
+			idx=(idx+1)%vmNum;
+		}
+	}
+	/**
+	 * Extended function for allocating cloudlets to vms
+	 */
+
+
+	public void bindCloudletToVmsScheduling(){
+		int cloudletNum=cloudletList.size();
+		int vmNum=vmList.size();
+		double[] vmLoad=new double[vmNum];
+		int idx=0;
+
+		cloudletList.get(0).setVmId(vmList.get(0).getId());
+		vmLoad[0]+=cloudletList.get(0).getCloudletLength()/vmList.get(0).getMips();
+		for(int j=1;j<cloudletNum;j++){
+			for(int i=0;i<vmNum;i++){
+				if(vmLoad[i]<vmLoad[idx]){
+					idx=i;
+				}}
+			cloudletList.get(j).setVmId(vmList.get(idx).getId());
+			vmLoad[idx]+=cloudletList.get(j).getCloudletLength()/vmList.get(idx).getMips();
+		}
+	}
+
+	public void bindCloudletToVmsMinMin(){
+
+		int cloudletNum=cloudletList.size();
+		int vmNum=vmList.size();
+		double[] readyTime = new double[vmNum];
+		double[][] expectedExecutionTime = new double[cloudletNum][vmNum];
+		List<Integer> unassignedTasks =  new LinkedList<>();
+
+		for(int j=0;j<cloudletNum;j++){
+			for(int i=0;i<vmNum;i++){
+				expectedExecutionTime[j][i] = cloudletList.get(j).getCloudletLength()/vmList.get(i).getMips()  + readyTime[i];
+			}
+			unassignedTasks.add(cloudletList.get(j).getCloudletId());
+		}
+
+		while (!unassignedTasks.isEmpty()) {
+
+			double earliestCompletionTime = Double.MAX_VALUE;
+			int machine = 0;
+			int task = 0;
+			for(int j=0;j<cloudletNum;j++){
+				if (unassignedTasks.contains(j)) {
+					for (int i = 0; i < vmNum; i++) {
+						if (expectedExecutionTime[j][i] < earliestCompletionTime) {
+							machine = i;
+							task = j;
+							earliestCompletionTime = expectedExecutionTime[j][i];
+						}
+					}
+				}
+			}
+			cloudletList.get(task).setVmId(vmList.get(machine).getId());
+			unassignedTasks.remove(unassignedTasks.indexOf(task));
+			readyTime[machine] = readyTime[machine] + expectedExecutionTime[task][machine];
+			for (int j = 0; j < cloudletNum; j++) {
+				expectedExecutionTime[j][machine] = expectedExecutionTime[j][machine] + readyTime[machine];
+			}
+		}
+	}
+
+	public void bindCloudletToVmsMaxMin(){
+
+		int cloudletNum=cloudletList.size();
+		int vmNum=vmList.size();
+		double[] readyTime = new double[vmNum];
+		List<List<Double>> exTime = new LinkedList<>();
+		List<Integer> unassignedTasks =  new LinkedList<>();
+
+		for(int j=0;j<cloudletNum;j++){
+			List<Double> vm  = new LinkedList<>();
+			for(int i=0;i<vmNum;i++){
+				vm.add(cloudletList.get(j).getCloudletLength()/vmList.get(i).getMips()  + readyTime[i]);
+			}
+			exTime.add(j, vm);
+			unassignedTasks.add(cloudletList.get(j).getCloudletId());
+		}
+
+		while (!unassignedTasks.isEmpty()) {
+
+			double earliestCompletionTime = Double.MAX_VALUE;
+			int machine = 0;
+			int task = 0;
+			Map<Integer, Double> minET = new HashMap<>();
+			for(int j=0;j<cloudletNum;j++){
+				if (unassignedTasks.contains(j)) {
+					for (int i = 0; i < vmNum; i++) {
+						if (exTime.get(j).get(i) < earliestCompletionTime) {
+							machine = i;
+							earliestCompletionTime = exTime.get(j).get(i);
+						}
+					}
+				}
+				minET.put(j, earliestCompletionTime);
+				earliestCompletionTime = Double.MAX_VALUE;
+			}
+			double maxTaskValue =  Double.MIN_VALUE;
+
+			for (Map.Entry<Integer, Double> e : minET.entrySet()) {
+				if  (unassignedTasks.contains(e.getKey())) {
+					if (e.getValue() > maxTaskValue) {
+						maxTaskValue = e.getValue();
+						task = e.getKey();
+					}
+				}
+			}
+
+			cloudletList.get(task).setVmId(vmList.get(machine).getId());
+
+			readyTime[machine] = readyTime[machine] + exTime.get(task).get(machine);
+			for (int j = 0; j < exTime.size(); j++) {
+				exTime.get(j).set(machine, exTime.get(j).get(machine) + readyTime[machine]);
+			}
+
+			unassignedTasks.remove(unassignedTasks.indexOf(task));
+
+		}
+	}
+
+	public void bindCloudletToVmsSufferage() {
+		int cloudletNum=cloudletList.size();
+		int vmNum=vmList.size();
+		double[] readyTime = new double[vmNum];
+		double[][] expectedExecutionTime = new double[cloudletNum][vmNum];
+		List<Integer> unassignedTasks =  new LinkedList<>();
+
+		for(int j=0;j<cloudletNum;j++){
+			for(int i=0;i<vmNum;i++){
+				expectedExecutionTime[j][i] = cloudletList.get(j).getCloudletLength()/vmList.get(i).getMips()  + readyTime[i];
+			}
+			unassignedTasks.add(cloudletList.get(j).getCloudletId());
+		}
+
+		while (!unassignedTasks.isEmpty()) {
+
+			int machine = 0;
+			int task = 0;
+			double sufferageValue = 0;
+			Map<Integer, Integer> machineTask = new HashMap<>();
+			Map<Integer, Double> machineSufferage = new HashMap<>();
+
+			for(int j=0;j<cloudletNum;j++){
+				double previousCompletionTime = Double.MAX_VALUE;
+				double earliestCompletionTime = Double.MAX_VALUE;
+				if (unassignedTasks.contains(j)) {
+
+					for (int i = 0; i < vmNum; i++) {
+						if ((expectedExecutionTime[j][i] > earliestCompletionTime)
+							&& (expectedExecutionTime[j][i] < previousCompletionTime)) {
+							previousCompletionTime = expectedExecutionTime[j][i];
+						}
+
+						if (expectedExecutionTime[j][i] < earliestCompletionTime) {
+							machine = i;
+							task = j;
+							previousCompletionTime = earliestCompletionTime;
+							earliestCompletionTime = expectedExecutionTime[j][i];
+						}
+					}
+
+					sufferageValue = previousCompletionTime - earliestCompletionTime;
+
+					if (!machineTask.containsKey(machine)) {
+						machineTask.put(machine, task);
+						machineSufferage.put(machine, sufferageValue);
+					}
+					else {
+						if (sufferageValue > machineSufferage.get(machine)) {
+							machineTask.put(machine, task);
+							machineSufferage.put(machine, sufferageValue);
+						}
+					}
+				}
+			}
+
+			for (Map.Entry<Integer, Integer> e : machineTask.entrySet()) {
+				cloudletList.get(e.getValue()).setVmId(vmList.get(e.getKey()).getId());
+				unassignedTasks.remove(unassignedTasks.indexOf(e.getValue()));
+				readyTime[e.getKey()] = expectedExecutionTime[e.getValue()][e.getKey()];
+				for (int j = 0; j < cloudletNum; j++) {
+						expectedExecutionTime[j][e.getKey()] = expectedExecutionTime[j][e.getKey()] + readyTime[e.getKey()];
+				}
+			}
+		}
+	}
+	////////////////////////////////////////////////////////////////////////////////////
 
 	@Override
 	public void processEvent(SimEvent ev) {
@@ -358,7 +556,7 @@ public class DatacenterBroker extends SimEntity {
 			} else { // submit to the specific vm
 				vm = VmList.getById(getVmsCreatedList(), cloudlet.getVmId());
 				if (vm == null) { // vm was not created
-					if(!Log.isDisabled()) {				    
+					if(!Log.isDisabled()) {
 					    Log.printConcatLine(CloudSim.clock(), ": ", getName(), ": Postponing execution of cloudlet ",
 							cloudlet.getCloudletId(), ": bount VM not available");
 					}
@@ -370,7 +568,7 @@ public class DatacenterBroker extends SimEntity {
 			    Log.printConcatLine(CloudSim.clock(), ": ", getName(), ": Sending cloudlet ",
 					cloudlet.getCloudletId(), " to VM #", vm.getId());
 			}
-			
+
 			cloudlet.setVmId(vm.getId());
 			sendNow(getVmsToDatacentersMap().get(vm.getId()), CloudSimTags.CLOUDLET_SUBMIT, cloudlet);
 			cloudletsSubmitted++;
@@ -381,6 +579,8 @@ public class DatacenterBroker extends SimEntity {
 
 		// remove submitted cloudlets from waiting list
 		getCloudletList().removeAll(successfullySubmitted);
+
+
 	}
 
 	/**
